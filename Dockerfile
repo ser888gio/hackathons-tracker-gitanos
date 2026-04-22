@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11-alpine
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -21,7 +21,7 @@ RUN apt-get update \
         libxcomposite1 \
         libxdamage1 \
         libxrandr2 \
-        libasound2 \
+        libasound2t64 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
