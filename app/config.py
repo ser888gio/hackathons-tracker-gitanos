@@ -25,12 +25,21 @@ def _bool_env(name: str, default: bool) -> bool:
     return value.lower() in {"1", "true", "yes", "on"}
 
 
-@dataclass(frozen=True)
-class Settings:
-    database_url: str = os.getenv(
+def _database_url() -> str:
+    value = os.getenv(
         "DATABASE_URL",
         "postgresql+asyncpg://hackathons:hackathons@localhost:5432/hackathons",
     )
+    if value.startswith("postgres://"):
+        return value.replace("postgres://", "postgresql+asyncpg://", 1)
+    if value.startswith("postgresql://"):
+        return value.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return value
+
+
+@dataclass(frozen=True)
+class Settings:
+    database_url: str = _database_url()
     devpost_search_url: str = os.getenv(
         "DEVPOST_SEARCH_URL",
         "https://devpost.com/software/search?page=1&query=is%3Awinner+has%3Avideo&source=suggestion",
