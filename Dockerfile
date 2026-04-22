@@ -1,4 +1,4 @@
-FROM python:3.11-alpine
+FROM python:3.11.14-slim-trixie
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -7,6 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         chromium \
         chromium-driver \
@@ -25,6 +26,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip wheel
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
