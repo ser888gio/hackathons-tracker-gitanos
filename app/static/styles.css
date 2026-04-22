@@ -299,6 +299,12 @@ input[type="range"] {
   align-items: start;
 }
 
+.project-card__actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
 .category {
   margin: 0 0 5px;
   color: var(--coral);
@@ -327,6 +333,22 @@ h2 {
   color: var(--gold);
   font-size: 1.05rem;
   font-weight: 900;
+}
+
+.delete-project {
+  width: 36px;
+  min-height: 36px;
+  color: var(--coral);
+}
+
+.delete-project svg {
+  width: 18px;
+  height: 18px;
+}
+
+.delete-project:hover {
+  border-color: rgba(207, 92, 69, 0.45);
+  background: #fff4ef;
 }
 
 .description {

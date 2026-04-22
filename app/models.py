@@ -4,6 +4,7 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -12,6 +13,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
@@ -72,6 +74,7 @@ class Project(Base):
     category: Mapped[str] = mapped_column(String(32), nullable=False, default="other")
     github_url: Mapped[str | None] = mapped_column(Text)
     demo_url: Mapped[str | None] = mapped_column(Text)
+    deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
     scraped_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

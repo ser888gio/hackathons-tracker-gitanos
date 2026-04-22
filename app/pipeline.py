@@ -34,15 +34,27 @@ async def run_pipeline(
             "message": "Pipeline started. Scraping Devpost first.",
         },
     )
-    scraper_status_callback = lambda state, payload: _publish(
-        status_callback,
-        state,
-        {"job_id": job_id, **payload},
-    )
+    scraper_skipped = 0
+
+    async def scraper_status_callback(state: str, payload: dict[str, Any]) -> None:
+        nonlocal scraper_skipped
+        scraper_skipped = max(scraper_skipped, int(payload.get("skipped") or 0))
+        await _publish(
+            status_callback,
+            state,
+            {"job_id": job_id, **payload},
+        )
+
+    async with AsyncSessionLocal() as session:
+        hackathon_id = await _upsert_devpost_hackathon(session)
+        await session.commit()
+        deleted_project_names = await _deleted_project_names(session, hackathon_id)
+
     scraped_projects = await asyncio.to_thread(
         _run_scraper_sync,
         settings.max_projects,
         scraper_status_callback,
+        deleted_project_names,
     )
     await _publish(
         status_callback,
@@ -56,20 +68,39 @@ async def run_pipeline(
     )
 
     evaluated = 0
+    skipped = scraper_skipped
     async with AsyncSessionLocal() as session:
-        hackathon_id = await _upsert_devpost_hackathon(session)
-        await session.commit()
+        deleted_project_names = await _deleted_project_names(session, hackathon_id)
 
         for scraped in scraped_projects:
+            project_name = scraped["project_name"]
+            if _project_name_key(project_name) in deleted_project_names:
+                skipped += 1
+                await _publish(
+                    status_callback,
+                    "running",
+                    {
+                        "job_id": job_id,
+                        "stage": "saving",
+                        "message": f"Skipping deleted project {project_name}.",
+                        "project_name": project_name,
+                        "evaluated": evaluated,
+                        "skipped": skipped,
+                        "total": len(scraped_projects),
+                    },
+                )
+                continue
+
             await _publish(
                 status_callback,
                 "running",
                 {
                     "job_id": job_id,
                     "stage": "saving",
-                    "message": f"Saving project {scraped['project_name']} to the database.",
-                    "project_name": scraped["project_name"],
+                    "message": f"Saving project {project_name} to the database.",
+                    "project_name": project_name,
                     "evaluated": evaluated,
+                    "skipped": skipped,
                     "total": len(scraped_projects),
                 },
             )
@@ -82,14 +113,15 @@ async def run_pipeline(
                 {
                     "job_id": job_id,
                     "stage": "evaluating",
-                    "message": f"Evaluating {scraped['project_name']} with the LLM.",
-                    "project_name": scraped["project_name"],
+                    "message": f"Evaluating {project_name} with the LLM.",
+                    "project_name": project_name,
                     "evaluated": evaluated,
+                    "skipped": skipped,
                     "total": len(scraped_projects),
                 },
             )
             evaluation = await evaluate_project(
-                scraped["project_name"],
+                project_name,
                 scraped["description"],
                 scraped.get("category", "other"),
             )
@@ -108,9 +140,10 @@ async def run_pipeline(
                 {
                     "job_id": job_id,
                     "stage": "evaluating",
-                    "message": f"Stored evaluation for {scraped['project_name']}.",
-                    "project_name": scraped["project_name"],
+                    "message": f"Stored evaluation for {project_name}.",
+                    "project_name": project_name,
                     "evaluated": evaluated,
+                    "skipped": skipped,
                     "total": len(scraped_projects),
                 },
             )
@@ -119,6 +152,7 @@ async def run_pipeline(
         "job_id": job_id,
         "scraped": len(scraped_projects),
         "evaluated": evaluated,
+        "skipped": skipped,
     }
     await _publish(
         status_callback,
@@ -126,7 +160,7 @@ async def run_pipeline(
         {
             **result,
             "stage": "completed",
-            "message": f"Pipeline completed: {evaluated} evaluations stored.",
+            "message": f"Pipeline completed: {evaluated} evaluations stored, {skipped} deleted projects skipped.",
         },
     )
     return result
@@ -135,11 +169,13 @@ async def run_pipeline(
 def _run_scraper_sync(
     max_projects: int,
     status_callback: StatusCallback | None,
+    skip_project_names: set[str],
 ) -> list[dict[str, Any]]:
     return asyncio.run(
         scrape_devpost_projects(
             max_projects=max_projects,
             status_callback=status_callback,
+            skip_project_names=skip_project_names,
         )
     )
 
@@ -211,6 +247,19 @@ async def _upsert_project(
     return result.scalar_one()
 
 
+async def _deleted_project_names(session: AsyncSession, hackathon_id: uuid.UUID) -> set[str]:
+    statement = select(Project.project_name).where(
+        Project.hackathon_id == hackathon_id,
+        Project.deleted.is_(True),
+    )
+    rows = (await session.execute(statement)).scalars()
+    return {_project_name_key(project_name) for project_name in rows}
+
+
+def _project_name_key(project_name: str) -> str:
+    return project_name.strip().casefold()
+
+
 async def _upsert_evaluation(
     session: AsyncSession,
     project_id: uuid.UUID,
@@ -242,10 +291,22 @@ async def list_projects(session: AsyncSession) -> list[dict[str, Any]]:
     statement = (
         select(Project, Evaluation)
         .outerjoin(Evaluation, Evaluation.project_id == Project.id)
+        .where(Project.deleted.is_(False))
         .order_by(Project.scraped_at.desc(), Project.project_name.asc())
     )
     rows = (await session.execute(statement)).all()
     return [_serialize_project(project, evaluation) for project, evaluation in rows]
+
+
+async def mark_project_deleted(session: AsyncSession, project_id: uuid.UUID) -> bool:
+    statement = (
+        update(Project)
+        .where(Project.id == project_id)
+        .values(deleted=True, scraped_at=func.now())
+        .returning(Project.id)
+    )
+    result = await session.execute(statement)
+    return result.scalar_one_or_none() is not None
 
 
 def _serialize_project(project: Project, evaluation: Evaluation | None) -> dict[str, Any]:
@@ -258,6 +319,7 @@ def _serialize_project(project: Project, evaluation: Evaluation | None) -> dict[
         "category": project.category,
         "github_url": project.github_url,
         "demo_url": project.demo_url,
+        "deleted": project.deleted,
         "scraped_at": project.scraped_at.isoformat() if project.scraped_at else None,
         "evaluation": None
         if evaluation is None

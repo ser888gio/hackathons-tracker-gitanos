@@ -76,6 +76,7 @@ function renderJobStatus(job) {
     parts.push(`scraped ${job.scraped}`);
   }
   if (job.total !== undefined) parts.push(`${job.evaluated || 0}/${job.total} evaluated`);
+  if (job.skipped) parts.push(`${job.skipped} skipped`);
   if (job.max_projects !== undefined && job.scraped === undefined) parts.push(`max ${job.max_projects}`);
   if (state.pollCount > 0 && job.status !== "completed" && job.status !== "failed") {
     parts.push(`poll ${state.pollCount}`);
@@ -155,6 +156,7 @@ function render() {
     node.querySelector(".category").textContent = project.category || "other";
     node.querySelector("h2").textContent = project.project_name;
     node.querySelector(".score").textContent = project.evaluation ? `${project.evaluation.rating}/10` : "-";
+    node.querySelector(".delete-project").addEventListener("click", () => deleteProject(project));
     node.querySelector(".description").textContent = project.description || "";
     const stack = node.querySelector(".stack");
     for (const tag of project.tech_stack || []) {
@@ -209,6 +211,30 @@ async function loadProjects() {
     setStatus(`Could not load projects: ${error.message}`, "error");
   } finally {
     refreshButton.disabled = false;
+  }
+}
+
+async function deleteProject(project) {
+  const confirmed = window.confirm(`Delete "${project.project_name}" from the visible project list?`);
+  if (!confirmed) return;
+
+  const previousProjects = state.projects;
+  state.projects = state.projects.filter((item) => item.id !== project.id);
+  render();
+
+  try {
+    const response = await fetch(`/projects/${project.id}`, {
+      method: "DELETE",
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new Error(`Request failed with ${response.status}`);
+    }
+    setStatus(`Deleted ${project.project_name}. It will be skipped if scraped again.`, "info");
+  } catch (error) {
+    state.projects = previousProjects;
+    render();
+    setStatus(`Could not delete project: ${error.message}`, "error");
   }
 }
 

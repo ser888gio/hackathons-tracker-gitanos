@@ -239,13 +239,16 @@ async def scrape_devpost_projects(
     max_projects: int | None = None,
     delay_seconds: float | None = None,
     status_callback: StatusCallback | None = None,
+    skip_project_names: Iterable[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Scrape winning Devpost projects with nodriver and return plain dictionaries."""
     start_url = start_url or settings.devpost_search_url
     max_projects = settings.max_projects if max_projects is None else max_projects
     delay_seconds = settings.scraper_delay_seconds if delay_seconds is None else delay_seconds
+    skipped_names = {_project_name_key(name) for name in skip_project_names or []}
     browser: Browser | None = None
     projects: list[ScrapedProject] = []
+    skipped_deleted = 0
 
     try:
         await _publish(
@@ -255,6 +258,7 @@ async def scrape_devpost_projects(
                 "stage": "scraping",
                 "message": "Starting Chromium for Devpost scraping.",
                 "scraped": 0,
+                "skipped": skipped_deleted,
                 "max_projects": max_projects,
                 "current_url": start_url,
             },
@@ -271,6 +275,7 @@ async def scrape_devpost_projects(
                         "message": f"Reached MAX_PROJECTS limit ({max_projects}).",
                         "page": page_number,
                         "scraped": len(projects),
+                        "skipped": skipped_deleted,
                         "max_projects": max_projects,
                         "current_url": page_url(start_url, page_number),
                     },
@@ -286,6 +291,7 @@ async def scrape_devpost_projects(
                     "message": f"Opening Devpost results page {page_number}.",
                     "page": page_number,
                     "scraped": len(projects),
+                    "skipped": skipped_deleted,
                     "max_projects": max_projects,
                     "current_url": results_url,
                 },
@@ -301,6 +307,7 @@ async def scrape_devpost_projects(
                         "message": f"No project cards found on page {page_number}; stopping scraper.",
                         "page": page_number,
                         "scraped": len(projects),
+                        "skipped": skipped_deleted,
                         "max_projects": max_projects,
                         "current_url": results_url,
                     },
@@ -315,6 +322,7 @@ async def scrape_devpost_projects(
                     "page": page_number,
                     "cards_on_page": len(cards),
                     "scraped": len(projects),
+                    "skipped": skipped_deleted,
                     "max_projects": max_projects,
                     "current_url": results_url,
                 },
@@ -326,8 +334,28 @@ async def scrape_devpost_projects(
 
                 detail_url = card.get("detail_url")
                 detail_project: dict[str, Any] = {}
+                project_name = str(card.get("project_name") or "project").strip()
+                if _project_name_key(project_name) in skipped_names:
+                    skipped_deleted += 1
+                    await _publish(
+                        status_callback,
+                        "running",
+                        {
+                            "stage": "scraping",
+                            "message": f"Skipping deleted project {project_name}.",
+                            "page": page_number,
+                            "card": card_index,
+                            "cards_on_page": len(cards),
+                            "project_name": project_name,
+                            "scraped": len(projects),
+                            "skipped": skipped_deleted,
+                            "max_projects": max_projects,
+                            "current_url": results_url,
+                        },
+                    )
+                    continue
+
                 if isinstance(detail_url, str) and detail_url:
-                    project_name = str(card.get("project_name") or "project").strip()
                     await _publish(
                         status_callback,
                         "running",
@@ -339,6 +367,7 @@ async def scrape_devpost_projects(
                             "cards_on_page": len(cards),
                             "project_name": project_name,
                             "scraped": len(projects),
+                            "skipped": skipped_deleted,
                             "max_projects": max_projects,
                             "current_url": detail_url,
                         },
@@ -362,6 +391,7 @@ async def scrape_devpost_projects(
                             "cards_on_page": len(cards),
                             "project_name": project.project_name,
                             "scraped": len(projects),
+                            "skipped": skipped_deleted,
                             "max_projects": max_projects,
                             "current_url": detail_url if isinstance(detail_url, str) else results_url,
                         },
@@ -374,6 +404,10 @@ async def scrape_devpost_projects(
             browser.stop()
 
     return [project.to_dict() for project in projects]
+
+
+def _project_name_key(project_name: str) -> str:
+    return project_name.strip().casefold()
 
 
 async def _publish(

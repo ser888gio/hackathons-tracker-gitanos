@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import get_session, init_db
-from app.pipeline import list_projects, run_pipeline
+from app.pipeline import list_projects, mark_project_deleted, run_pipeline
 
 jobs: dict[str, dict[str, Any]] = {}
 
@@ -74,6 +74,15 @@ async def get_config(response: Response) -> dict[str, Any]:
 @app.get("/projects")
 async def get_projects(session: AsyncSession = Depends(get_session)) -> list[dict[str, Any]]:
     return await list_projects(session)
+
+
+@app.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project(project_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Response:
+    deleted = await mark_project_deleted(session, project_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.get("/jobs/latest")

@@ -7,7 +7,8 @@ from app.config import settings
 from app.models import CATEGORIES
 
 
-EVALUATION_SYSTEM_PROMPT = """You are a senior engineer evaluating hackathon projects.
+EVALUATION_SYSTEM_PROMPT = """You are a senior engineer and unforgiving hackathon judge.
+Be skeptical, concrete, and brutally honest. Do not reward effort, polish, buzzwords, or a good cause unless the project shows real execution, technical depth, originality, and user value.
 Respond only with a valid JSON object. Do not include markdown, comments, prose, or a preamble."""
 
 
@@ -27,6 +28,23 @@ Project name: {project_name}
 Category: {category or "other"}
 Description:
 {description}
+
+Use this harsh rating scale:
+- 1-2: barely a concept, broken, incoherent, or no meaningful implementation.
+- 3-4: simple demo with major gaps, derivative idea, weak execution, or unclear usefulness.
+- 5-6: average hackathon project; functional but ordinary, shallow, incomplete, or mostly wrapper/glue work.
+- 7: genuinely solid; useful and implemented well, but still has clear limitations or little novelty.
+- 8: unusually strong; convincing execution, clear value, and some technical or product distinction.
+- 9: exceptional; production-adjacent, original, technically impressive, and broadly useful.
+- 10: rare winner-level project with outstanding originality, execution, polish, and impact.
+
+Calibration rules:
+- The default score for a reasonable working project is 5 or 6, not 8.
+- Do not give 8+ unless the description gives explicit evidence of standout implementation and impact.
+- Penalize vague descriptions, missing demos, thin wrappers around APIs, generic AI chatbots, unclear users, missing validation, and unfinished workflows.
+- If evidence is limited, score conservatively and mention the uncertainty in feedback_improvements.
+- feedback_pros should identify only real strengths proven by the description.
+- feedback_improvements should be direct and critical, naming what would keep this from winning.
 
 Return exactly this JSON structure:
 {{
