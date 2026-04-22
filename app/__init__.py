@@ -1,0 +1,1 @@
+"""Hackathons tracker backend package."""

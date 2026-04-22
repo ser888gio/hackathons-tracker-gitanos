@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: hackathons
+      POSTGRES_USER: hackathons
+      POSTGRES_PASSWORD: hackathons
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hackathons -d hackathons"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+asyncpg://hackathons:hackathons@db:5432/hackathons
+      CHROMIUM_PATH: /usr/bin/chromium
+      CHROMIUM_HEADLESS: "true"
+      MAX_PROJECTS: ${MAX_PROJECTS:-25}
+      SCRAPER_DELAY_SECONDS: ${SCRAPER_DELAY_SECONDS:-1.5}
+      LLM_PROVIDER: ${LLM_PROVIDER:-auto}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  scraper:
+    build: .
+    command: ["python", "scripts/scrape_devpost.py"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://hackathons:hackathons@db:5432/hackathons
+      CHROMIUM_PATH: /usr/bin/chromium
+      CHROMIUM_HEADLESS: "true"
+      MAX_PROJECTS: ${MAX_PROJECTS:-25}
+      SCRAPER_DELAY_SECONDS: ${SCRAPER_DELAY_SECONDS:-1.5}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
