@@ -161,7 +161,7 @@ async def _upsert_devpost_hackathon(session: AsyncSession) -> uuid.UUID:
 async def _upsert_project(
     session: AsyncSession,
     hackathon_id: uuid.UUID,
-    scraped: dict[str, str],
+    scraped: dict[str, Any],
 ) -> uuid.UUID:
     statement = (
         insert(Project)
@@ -169,15 +169,20 @@ async def _upsert_project(
             hackathon_id=hackathon_id,
             project_name=scraped["project_name"],
             description=scraped["description"],
-            tech_stack=[],
+            tech_stack=scraped.get("tech_stack") or [],
             category=scraped.get("category") or "other",
+            github_url=scraped.get("github_url"),
+            demo_url=scraped.get("demo_url"),
             scraped_at=func.now(),
         )
         .on_conflict_do_update(
             constraint="uq_projects_hackathon_project_name",
             set_={
                 "description": scraped["description"],
+                "tech_stack": scraped.get("tech_stack") or [],
                 "category": scraped.get("category") or "other",
+                "github_url": scraped.get("github_url"),
+                "demo_url": scraped.get("demo_url"),
                 "scraped_at": func.now(),
             },
         )

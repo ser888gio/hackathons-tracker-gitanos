@@ -31,12 +31,18 @@ class ScrapedProject:
     project_name: str
     description: str
     category: str
+    tech_stack: list[str]
+    github_url: str | None = None
+    demo_url: str | None = None
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "project_name": self.project_name,
             "description": self.description,
             "category": self.category,
+            "tech_stack": self.tech_stack,
+            "github_url": self.github_url,
+            "demo_url": self.demo_url,
         }
 
 
@@ -132,29 +138,63 @@ async def _extract_cards(page: Any) -> list[dict[str, Any]]:
     return value if isinstance(value, list) else []
 
 
-async def _extract_detail_description(page: Any) -> str:
+async def _extract_detail_project(page: Any) -> dict[str, Any]:
     expression = r"""
 (() => {
   const clean = (value) => (value || "").replace(/\s+/g, " ").trim();
-  const selectors = [
-    "#software-description",
-    ".software-description",
-    "[data-role='software-description']",
-    ".app-details .description",
-    "#app-details-left .content",
-    ".content.markdown",
-    "main"
-  ];
-  for (const selector of selectors) {
-    const node = document.querySelector(selector);
-    const text = clean(node && node.innerText);
-    if (text && text.length > 80) return text;
+  const meta = (selector) => clean(document.querySelector(selector)?.getAttribute("content"));
+  const absUrl = (href) => {
+    try { return href ? new URL(href, location.href).href : null; }
+    catch { return null; }
+  };
+
+  const title = clean(document.querySelector("#app-title")?.innerText) ||
+    meta("meta[property='og:title']") ||
+    meta("meta[itemprop='name']") ||
+    clean(document.title.replace(/\s*\|\s*Devpost\s*$/i, ""));
+
+  const tagline = clean(document.querySelector("#software-header p.large")?.innerText) ||
+    meta("meta[property='og:description']") ||
+    meta("meta[name='description']");
+
+  const left = document.querySelector("#app-details-left");
+  const storyBlocks = [];
+  if (left) {
+    for (const child of Array.from(left.children)) {
+      if (child.id === "gallery" || child.id === "built-with") continue;
+      if (child.matches("nav, .app-links, script, style")) continue;
+      if (!child.querySelector("h1, h2, h3, p, li")) continue;
+      const text = clean(child.innerText);
+      if (text.length >= 80) storyBlocks.push(text);
+    }
   }
-  return clean(document.body && document.body.innerText);
+
+  const story = storyBlocks.join("\n\n");
+  const description = [tagline, story].filter(Boolean).join("\n\n");
+
+  const techStack = Array.from(document.querySelectorAll("#built-with .cp-tag"))
+    .map((node) => clean(node.textContent))
+    .filter(Boolean);
+
+  const appLinks = Array.from(document.querySelectorAll("[data-role='software-urls'] a, nav.app-links a"))
+    .map((anchor) => absUrl(anchor.getAttribute("href")))
+    .filter(Boolean);
+
+  const githubUrl = appLinks.find((url) => /github\.com/i.test(url)) || null;
+  const demoUrl = appLinks.find((url) => !/github\.com/i.test(url)) || null;
+
+  return {
+    project_name: title,
+    description,
+    tech_stack: [...new Set(techStack)],
+    github_url: githubUrl,
+    demo_url: demoUrl,
+    url: location.href
+  };
 })()
 """
     value = await _evaluate(page, expression)
-    return value if isinstance(value, str) else ""
+    return value if isinstance(value, dict) else {}
 
 
 async def _navigate(browser: Browser, url: str) -> Any:
@@ -163,17 +203,23 @@ async def _navigate(browser: Browser, url: str) -> Any:
     return page
 
 
-def _project_from_card(card: dict[str, Any], detail_description: str) -> ScrapedProject | None:
-    name = str(card.get("project_name") or "").strip()
+def _project_from_card(card: dict[str, Any], detail_project: dict[str, Any]) -> ScrapedProject | None:
+    name = str(detail_project.get("project_name") or card.get("project_name") or "").strip()
     fallback_description = str(card.get("description") or "").strip()
-    description = detail_description.strip() or fallback_description
+    detail_description = str(detail_project.get("description") or "").strip()
+    description = detail_description or fallback_description
     tags = card.get("tags") if isinstance(card.get("tags"), list) else []
+    tech_stack = _string_tags(detail_project.get("tech_stack") or [])
+    category_hints = [*_string_tags(tags), *tech_stack]
     if not name or not description:
         return None
     return ScrapedProject(
         project_name=name,
         description=description,
-        category=normalize_category(_string_tags(tags), description),
+        category=normalize_category(category_hints, description),
+        tech_stack=tech_stack,
+        github_url=_optional_string(detail_project.get("github_url")),
+        demo_url=_optional_string(detail_project.get("demo_url")),
     )
 
 
@@ -181,12 +227,19 @@ def _string_tags(tags: Iterable[Any]) -> list[str]:
     return [str(tag).strip() for tag in tags if str(tag).strip()]
 
 
+def _optional_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 async def scrape_devpost_projects(
     start_url: str | None = None,
     max_projects: int | None = None,
     delay_seconds: float | None = None,
     status_callback: StatusCallback | None = None,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """Scrape winning Devpost projects with nodriver and return plain dictionaries."""
     start_url = start_url or settings.devpost_search_url
     max_projects = settings.max_projects if max_projects is None else max_projects
@@ -267,7 +320,7 @@ async def scrape_devpost_projects(
                     break
 
                 detail_url = card.get("detail_url")
-                detail_description = ""
+                detail_project: dict[str, Any] = {}
                 if isinstance(detail_url, str) and detail_url:
                     project_name = str(card.get("project_name") or "project").strip()
                     await _publish(
@@ -285,11 +338,11 @@ async def scrape_devpost_projects(
                         },
                     )
                     detail_page = await _navigate(browser, detail_url)
-                    detail_description = await _extract_detail_description(detail_page)
+                    detail_project = await _extract_detail_project(detail_page)
                     await asyncio.sleep(delay_seconds)
                     await _navigate(browser, results_url)
 
-                project = _project_from_card(card, detail_description)
+                project = _project_from_card(card, detail_project)
                 if project:
                     projects.append(project)
                     await _publish(

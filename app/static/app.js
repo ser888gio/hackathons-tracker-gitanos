@@ -109,6 +109,37 @@ function render() {
     node.querySelector("h2").textContent = project.project_name;
     node.querySelector(".score").textContent = project.evaluation ? `${project.evaluation.rating}/10` : "-";
     node.querySelector(".description").textContent = project.description || "";
+    const stack = node.querySelector(".stack");
+    for (const tag of project.tech_stack || []) {
+      const item = document.createElement("span");
+      item.textContent = tag;
+      stack.append(item);
+    }
+    if ((project.tech_stack || []).length === 0) {
+      stack.remove();
+    }
+
+    const links = node.querySelector(".project-links");
+    if (project.github_url) {
+      const github = document.createElement("a");
+      github.href = project.github_url;
+      github.target = "_blank";
+      github.rel = "noreferrer";
+      github.textContent = "GitHub";
+      links.append(github);
+    }
+    if (project.demo_url) {
+      const demo = document.createElement("a");
+      demo.href = project.demo_url;
+      demo.target = "_blank";
+      demo.rel = "noreferrer";
+      demo.textContent = "Demo";
+      links.append(demo);
+    }
+    if (!project.github_url && !project.demo_url) {
+      links.remove();
+    }
+
     node.querySelector(".pros").textContent = project.evaluation?.feedback_pros || "Pending evaluation.";
     node.querySelector(".improvements").textContent = project.evaluation?.feedback_improvements || "Pending evaluation.";
     grid.append(node);
