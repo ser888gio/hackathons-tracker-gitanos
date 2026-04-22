@@ -24,8 +24,29 @@ async def run_pipeline(
     job_id: str | None = None,
     status_callback: StatusCallback | None = None,
 ) -> dict[str, Any]:
-    await _publish(status_callback, "running", {"job_id": job_id, "stage": "scraping"})
-    scraped_projects = await scrape_devpost_projects(max_projects=settings.max_projects)
+    await _publish(
+        status_callback,
+        "running",
+        {
+            "job_id": job_id,
+            "stage": "scraping",
+            "message": "Pipeline started. Scraping Devpost first.",
+        },
+    )
+    scraped_projects = await scrape_devpost_projects(
+        max_projects=settings.max_projects,
+        status_callback=status_callback,
+    )
+    await _publish(
+        status_callback,
+        "running",
+        {
+            "job_id": job_id,
+            "stage": "saving",
+            "message": f"Scraping finished with {len(scraped_projects)} projects. Saving and evaluating next.",
+            "scraped": len(scraped_projects),
+        },
+    )
 
     evaluated = 0
     async with AsyncSessionLocal() as session:
@@ -33,6 +54,18 @@ async def run_pipeline(
         await session.commit()
 
         for scraped in scraped_projects:
+            await _publish(
+                status_callback,
+                "running",
+                {
+                    "job_id": job_id,
+                    "stage": "saving",
+                    "message": f"Saving project {scraped['project_name']} to the database.",
+                    "project_name": scraped["project_name"],
+                    "evaluated": evaluated,
+                    "total": len(scraped_projects),
+                },
+            )
             project_id = await _upsert_project(session, hackathon_id, scraped)
             await session.commit()
 
@@ -42,6 +75,7 @@ async def run_pipeline(
                 {
                     "job_id": job_id,
                     "stage": "evaluating",
+                    "message": f"Evaluating {scraped['project_name']} with the LLM.",
                     "project_name": scraped["project_name"],
                     "evaluated": evaluated,
                     "total": len(scraped_projects),
@@ -61,13 +95,33 @@ async def run_pipeline(
                 )
             await session.commit()
             evaluated += 1
+            await _publish(
+                status_callback,
+                "running",
+                {
+                    "job_id": job_id,
+                    "stage": "evaluating",
+                    "message": f"Stored evaluation for {scraped['project_name']}.",
+                    "project_name": scraped["project_name"],
+                    "evaluated": evaluated,
+                    "total": len(scraped_projects),
+                },
+            )
 
     result = {
         "job_id": job_id,
         "scraped": len(scraped_projects),
         "evaluated": evaluated,
     }
-    await _publish(status_callback, "completed", result)
+    await _publish(
+        status_callback,
+        "completed",
+        {
+            **result,
+            "stage": "completed",
+            "message": f"Pipeline completed: {evaluated} evaluations stored.",
+        },
+    )
     return result
 
 

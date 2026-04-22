@@ -2,6 +2,8 @@ const state = {
   projects: [],
   category: "",
   minRating: 0,
+  activeJobId: null,
+  pollTimer: null,
 };
 
 const grid = document.querySelector("#projectGrid");
@@ -17,12 +19,62 @@ const pipelineButton = document.querySelector("#pipelineButton");
 function setStatus(message, tone = "info") {
   if (!message) {
     statusBox.hidden = true;
-    statusBox.textContent = "";
+    statusBox.replaceChildren();
     return;
   }
   statusBox.hidden = false;
   statusBox.textContent = message;
   statusBox.dataset.tone = tone;
+}
+
+function formatTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function renderJobStatus(job) {
+  statusBox.hidden = false;
+  statusBox.dataset.tone = job.status === "failed" ? "error" : "info";
+  statusBox.replaceChildren();
+
+  const header = document.createElement("div");
+  header.className = "status__header";
+
+  const title = document.createElement("strong");
+  title.textContent = `${job.status || "running"}${job.stage ? `: ${job.stage}` : ""}`;
+
+  const meta = document.createElement("span");
+  const parts = [];
+  if (job.page) parts.push(`page ${job.page}`);
+  if (job.scraped !== undefined) parts.push(`${job.scraped} scraped`);
+  if (job.total !== undefined) parts.push(`${job.evaluated || 0}/${job.total} evaluated`);
+  if (job.max_projects) parts.push(`limit ${job.max_projects}`);
+  meta.textContent = parts.join(" · ");
+
+  header.append(title, meta);
+  statusBox.append(header);
+
+  if (job.message) {
+    const current = document.createElement("p");
+    current.className = "status__current";
+    current.textContent = job.message;
+    statusBox.append(current);
+  }
+
+  const messages = (job.messages || []).slice(-6).reverse();
+  if (messages.length > 0) {
+    const list = document.createElement("ol");
+    list.className = "status__log";
+    for (const entry of messages) {
+      const item = document.createElement("li");
+      const time = formatTime(entry.at);
+      item.textContent = time ? `${time} ${entry.message}` : entry.message;
+      list.append(item);
+    }
+    statusBox.append(list);
+  }
 }
 
 function ratingOf(project) {
@@ -88,11 +140,65 @@ async function triggerPipeline() {
       throw new Error(`Request failed with ${response.status}`);
     }
     const body = await response.json();
+    state.activeJobId = body.job_id;
     setStatus(`Pipeline started: ${body.job_id}`, "info");
+    startPollingJob(body.job_id);
   } catch (error) {
     setStatus(`Could not start pipeline: ${error.message}`, "error");
   } finally {
     pipelineButton.disabled = false;
+  }
+}
+
+async function pollJob(jobId) {
+  try {
+    const response = await fetch(`/jobs/${jobId}`);
+    if (!response.ok) {
+      throw new Error(`Request failed with ${response.status}`);
+    }
+    const job = await response.json();
+    renderJobStatus(job);
+    if (job.status === "completed") {
+      stopPollingJob();
+      await loadProjects();
+      renderJobStatus(job);
+    }
+    if (job.status === "failed") {
+      stopPollingJob();
+    }
+  } catch (error) {
+    setStatus(`Could not load pipeline status: ${error.message}`, "error");
+  }
+}
+
+function startPollingJob(jobId) {
+  stopPollingJob();
+  pollJob(jobId);
+  state.pollTimer = window.setInterval(() => pollJob(jobId), 1500);
+}
+
+function stopPollingJob() {
+  if (state.pollTimer) {
+    window.clearInterval(state.pollTimer);
+    state.pollTimer = null;
+  }
+}
+
+async function resumeLatestJob() {
+  try {
+    const response = await fetch("/jobs/latest");
+    if (response.status === 404) return;
+    if (!response.ok) {
+      throw new Error(`Request failed with ${response.status}`);
+    }
+    const job = await response.json();
+    renderJobStatus(job);
+    if (job.status === "accepted" || job.status === "running") {
+      state.activeJobId = job.job_id;
+      startPollingJob(job.job_id);
+    }
+  } catch (error) {
+    setStatus(`Could not load latest pipeline status: ${error.message}`, "error");
   }
 }
 
@@ -110,3 +216,4 @@ refreshButton.addEventListener("click", loadProjects);
 pipelineButton.addEventListener("click", triggerPipeline);
 
 loadProjects();
+resumeLatestJob();

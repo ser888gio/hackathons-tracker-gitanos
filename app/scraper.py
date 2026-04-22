@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -14,6 +14,7 @@ from app.category import normalize_category
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+StatusCallback = Callable[[str, dict[str, Any]], Awaitable[None] | None]
 
 CHROMIUM_DOCKER_FLAGS = [
     "--no-sandbox",
@@ -184,6 +185,7 @@ async def scrape_devpost_projects(
     start_url: str | None = None,
     max_projects: int | None = None,
     delay_seconds: float | None = None,
+    status_callback: StatusCallback | None = None,
 ) -> list[dict[str, str]]:
     """Scrape winning Devpost projects with nodriver and return plain dictionaries."""
     start_url = start_url or settings.devpost_search_url
@@ -193,25 +195,95 @@ async def scrape_devpost_projects(
     projects: list[ScrapedProject] = []
 
     try:
+        await _publish(
+            status_callback,
+            "running",
+            {
+                "stage": "scraping",
+                "message": "Starting Chromium for Devpost scraping.",
+                "scraped": 0,
+                "max_projects": max_projects,
+            },
+        )
         browser = await uc.start(config=chromium_config())
         page_number = 1
         while True:
             if max_projects and len(projects) >= max_projects:
+                await _publish(
+                    status_callback,
+                    "running",
+                    {
+                        "stage": "scraping",
+                        "message": f"Reached MAX_PROJECTS limit ({max_projects}).",
+                        "page": page_number,
+                        "scraped": len(projects),
+                        "max_projects": max_projects,
+                    },
+                )
                 break
 
             results_url = page_url(start_url, page_number)
+            await _publish(
+                status_callback,
+                "running",
+                {
+                    "stage": "scraping",
+                    "message": f"Opening Devpost results page {page_number}.",
+                    "page": page_number,
+                    "scraped": len(projects),
+                    "max_projects": max_projects,
+                },
+            )
             page = await _navigate(browser, results_url)
             cards = await _extract_cards(page)
             if not cards:
+                await _publish(
+                    status_callback,
+                    "running",
+                    {
+                        "stage": "scraping",
+                        "message": f"No project cards found on page {page_number}; stopping scraper.",
+                        "page": page_number,
+                        "scraped": len(projects),
+                        "max_projects": max_projects,
+                    },
+                )
                 break
+            await _publish(
+                status_callback,
+                "running",
+                {
+                    "stage": "scraping",
+                    "message": f"Found {len(cards)} project cards on page {page_number}.",
+                    "page": page_number,
+                    "cards_on_page": len(cards),
+                    "scraped": len(projects),
+                    "max_projects": max_projects,
+                },
+            )
 
-            for card in cards:
+            for card_index, card in enumerate(cards, start=1):
                 if max_projects and len(projects) >= max_projects:
                     break
 
                 detail_url = card.get("detail_url")
                 detail_description = ""
                 if isinstance(detail_url, str) and detail_url:
+                    project_name = str(card.get("project_name") or "project").strip()
+                    await _publish(
+                        status_callback,
+                        "running",
+                        {
+                            "stage": "scraping",
+                            "message": f"Reading detail page for {project_name}.",
+                            "page": page_number,
+                            "card": card_index,
+                            "cards_on_page": len(cards),
+                            "project_name": project_name,
+                            "scraped": len(projects),
+                            "max_projects": max_projects,
+                        },
+                    )
                     detail_page = await _navigate(browser, detail_url)
                     detail_description = await _extract_detail_description(detail_page)
                     await asyncio.sleep(delay_seconds)
@@ -220,6 +292,20 @@ async def scrape_devpost_projects(
                 project = _project_from_card(card, detail_description)
                 if project:
                     projects.append(project)
+                    await _publish(
+                        status_callback,
+                        "running",
+                        {
+                            "stage": "scraping",
+                            "message": f"Scraped {project.project_name}.",
+                            "page": page_number,
+                            "card": card_index,
+                            "cards_on_page": len(cards),
+                            "project_name": project.project_name,
+                            "scraped": len(projects),
+                            "max_projects": max_projects,
+                        },
+                    )
 
             page_number += 1
             await asyncio.sleep(delay_seconds)
@@ -228,3 +314,15 @@ async def scrape_devpost_projects(
             browser.stop()
 
     return [project.to_dict() for project in projects]
+
+
+async def _publish(
+    status_callback: StatusCallback | None,
+    state: str,
+    payload: dict[str, Any],
+) -> None:
+    if status_callback is None:
+        return
+    result = status_callback(state, payload)
+    if result is not None:
+        await result
