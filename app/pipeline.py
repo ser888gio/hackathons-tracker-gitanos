@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
@@ -33,9 +34,15 @@ async def run_pipeline(
             "message": "Pipeline started. Scraping Devpost first.",
         },
     )
-    scraped_projects = await scrape_devpost_projects(
-        max_projects=settings.max_projects,
-        status_callback=status_callback,
+    scraper_status_callback = lambda state, payload: _publish(
+        status_callback,
+        state,
+        {"job_id": job_id, **payload},
+    )
+    scraped_projects = await asyncio.to_thread(
+        _run_scraper_sync,
+        settings.max_projects,
+        scraper_status_callback,
     )
     await _publish(
         status_callback,
@@ -123,6 +130,18 @@ async def run_pipeline(
         },
     )
     return result
+
+
+def _run_scraper_sync(
+    max_projects: int,
+    status_callback: StatusCallback | None,
+) -> list[dict[str, Any]]:
+    return asyncio.run(
+        scrape_devpost_projects(
+            max_projects=max_projects,
+            status_callback=status_callback,
+        )
+    )
 
 
 async def _publish(

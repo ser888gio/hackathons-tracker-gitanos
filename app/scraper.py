@@ -256,6 +256,7 @@ async def scrape_devpost_projects(
                 "message": "Starting Chromium for Devpost scraping.",
                 "scraped": 0,
                 "max_projects": max_projects,
+                "current_url": start_url,
             },
         )
         browser = await uc.start(config=chromium_config())
@@ -271,6 +272,7 @@ async def scrape_devpost_projects(
                         "page": page_number,
                         "scraped": len(projects),
                         "max_projects": max_projects,
+                        "current_url": page_url(start_url, page_number),
                     },
                 )
                 break
@@ -285,6 +287,7 @@ async def scrape_devpost_projects(
                     "page": page_number,
                     "scraped": len(projects),
                     "max_projects": max_projects,
+                    "current_url": results_url,
                 },
             )
             page = await _navigate(browser, results_url)
@@ -299,6 +302,7 @@ async def scrape_devpost_projects(
                         "page": page_number,
                         "scraped": len(projects),
                         "max_projects": max_projects,
+                        "current_url": results_url,
                     },
                 )
                 break
@@ -312,6 +316,7 @@ async def scrape_devpost_projects(
                     "cards_on_page": len(cards),
                     "scraped": len(projects),
                     "max_projects": max_projects,
+                    "current_url": results_url,
                 },
             )
 
@@ -335,6 +340,7 @@ async def scrape_devpost_projects(
                             "project_name": project_name,
                             "scraped": len(projects),
                             "max_projects": max_projects,
+                            "current_url": detail_url,
                         },
                     )
                     detail_page = await _navigate(browser, detail_url)
@@ -357,6 +363,7 @@ async def scrape_devpost_projects(
                             "project_name": project.project_name,
                             "scraped": len(projects),
                             "max_projects": max_projects,
+                            "current_url": detail_url if isinstance(detail_url, str) else results_url,
                         },
                     )
 

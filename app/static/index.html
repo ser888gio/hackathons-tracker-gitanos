@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Hackathons Tracker</title>
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v=5" />
   </head>
   <body>
     <main class="shell">
@@ -27,6 +27,25 @@
           </button>
         </div>
       </header>
+
+      <section class="scraper-panel" aria-label="Scraper status">
+        <div class="scraper-panel__stat">
+          <span class="scraper-panel__label">Max projects</span>
+          <span class="scraper-panel__value" id="statMaxProjects">—</span>
+        </div>
+        <div class="scraper-panel__stat">
+          <span class="scraper-panel__label">Pages scraped</span>
+          <span class="scraper-panel__value" id="statPages">—</span>
+        </div>
+        <div class="scraper-panel__stat">
+          <span class="scraper-panel__label">Projects scraped</span>
+          <span class="scraper-panel__value" id="statScraped">—</span>
+        </div>
+        <div class="scraper-panel__stat scraper-panel__stat--state">
+          <span class="scraper-panel__label">Scraper state</span>
+          <span class="scraper-panel__value" id="statState">—</span>
+        </div>
+      </section>
 
       <section class="toolbar" aria-label="Project filters">
         <label class="field">
@@ -80,6 +99,6 @@
       </article>
     </template>
 
-    <script src="/static/app.js" defer></script>
+    <script src="/static/app.js?v=5" defer></script>
   </body>
 </html>

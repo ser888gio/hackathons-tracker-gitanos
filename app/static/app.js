@@ -4,9 +4,29 @@ const state = {
   minRating: 0,
   activeJobId: null,
   pollTimer: null,
+  pollCount: 0,
+  lastLoggedUrl: null,
 };
 
 const grid = document.querySelector("#projectGrid");
+const statMaxProjects = document.querySelector("#statMaxProjects");
+const statPages = document.querySelector("#statPages");
+const statScraped = document.querySelector("#statScraped");
+const statState = document.querySelector("#statState");
+
+function updateScraperPanel(job) {
+  if (job.max_projects !== undefined) statMaxProjects.textContent = job.max_projects;
+  if (job.page !== undefined) statPages.textContent = job.page;
+  if (job.scraped !== undefined) {
+    statScraped.textContent = job.max_projects !== undefined
+      ? `${job.scraped} / ${job.max_projects}`
+      : job.scraped;
+  }
+  const state = job.status || "";
+  statState.textContent = state || "—";
+  statState.dataset.state = state;
+}
+
 const template = document.querySelector("#projectTemplate");
 const statusBox = document.querySelector("#status");
 const summary = document.querySelector("#summary");
@@ -35,6 +55,8 @@ function formatTime(value) {
 }
 
 function renderJobStatus(job) {
+  updateScraperPanel(job);
+  logScrapingUrl(job);
   statusBox.hidden = false;
   statusBox.dataset.tone = job.status === "failed" ? "error" : "info";
   statusBox.replaceChildren();
@@ -48,10 +70,17 @@ function renderJobStatus(job) {
   const meta = document.createElement("span");
   const parts = [];
   if (job.page) parts.push(`page ${job.page}`);
-  if (job.scraped !== undefined) parts.push(`${job.scraped} scraped`);
+  if (job.scraped !== undefined && job.max_projects !== undefined) {
+    parts.push(`scraped ${job.scraped}/${job.max_projects}`);
+  } else if (job.scraped !== undefined) {
+    parts.push(`scraped ${job.scraped}`);
+  }
   if (job.total !== undefined) parts.push(`${job.evaluated || 0}/${job.total} evaluated`);
-  if (job.max_projects) parts.push(`limit ${job.max_projects}`);
-  meta.textContent = parts.join(" · ");
+  if (job.max_projects !== undefined && job.scraped === undefined) parts.push(`max ${job.max_projects}`);
+  if (state.pollCount > 0 && job.status !== "completed" && job.status !== "failed") {
+    parts.push(`poll ${state.pollCount}`);
+  }
+  meta.textContent = parts.join(" | ");
 
   header.append(title, meta);
   statusBox.append(header);
@@ -61,6 +90,16 @@ function renderJobStatus(job) {
     current.className = "status__current";
     current.textContent = job.message;
     statusBox.append(current);
+  }
+
+  if (job.current_url) {
+    const url = document.createElement("a");
+    url.className = "status__url";
+    url.href = job.current_url;
+    url.target = "_blank";
+    url.rel = "noreferrer";
+    url.textContent = job.current_url;
+    statusBox.append(url);
   }
 
   const messages = (job.messages || []).slice(-6).reverse();
@@ -75,6 +114,14 @@ function renderJobStatus(job) {
     }
     statusBox.append(list);
   }
+}
+
+function logScrapingUrl(job) {
+  if (!job.current_url || job.current_url === state.lastLoggedUrl) {
+    return;
+  }
+  state.lastLoggedUrl = job.current_url;
+  console.log(`[scraper] scraping URL: ${job.current_url}`);
 }
 
 function ratingOf(project) {
@@ -149,12 +196,14 @@ function render() {
 async function loadProjects() {
   refreshButton.disabled = true;
   try {
-    const response = await fetch("/projects");
+    const response = await fetch("/projects", { cache: "no-store" });
     if (!response.ok) {
       throw new Error(`Request failed with ${response.status}`);
     }
     state.projects = await response.json();
-    setStatus("");
+    if (!state.activeJobId) {
+      setStatus("");
+    }
     render();
   } catch (error) {
     setStatus(`Could not load projects: ${error.message}`, "error");
@@ -166,13 +215,21 @@ async function loadProjects() {
 async function triggerPipeline() {
   pipelineButton.disabled = true;
   try {
-    const response = await fetch("/trigger-pipeline", { method: "POST" });
+    const response = await fetch("/trigger-pipeline", { method: "POST", cache: "no-store" });
     if (!response.ok) {
       throw new Error(`Request failed with ${response.status}`);
     }
     const body = await response.json();
     state.activeJobId = body.job_id;
-    setStatus(`Pipeline started: ${body.job_id}`, "info");
+    renderJobStatus({
+      job_id: body.job_id,
+      status: "accepted",
+      stage: "queued",
+      scraped: body.scraped ?? 0,
+      max_projects: body.max_projects,
+      message: "Pipeline accepted. Starting status polling now.",
+      messages: [{ at: new Date().toISOString(), message: "Pipeline accepted. Starting status polling now." }],
+    });
     startPollingJob(body.job_id);
   } catch (error) {
     setStatus(`Could not start pipeline: ${error.message}`, "error");
@@ -183,7 +240,8 @@ async function triggerPipeline() {
 
 async function pollJob(jobId) {
   try {
-    const response = await fetch(`/jobs/${jobId}`);
+    state.pollCount += 1;
+    const response = await fetch(`/jobs/${jobId}`, { cache: "no-store" });
     if (!response.ok) {
       throw new Error(`Request failed with ${response.status}`);
     }
@@ -193,9 +251,11 @@ async function pollJob(jobId) {
       stopPollingJob();
       await loadProjects();
       renderJobStatus(job);
+      state.activeJobId = null;
     }
     if (job.status === "failed") {
       stopPollingJob();
+      state.activeJobId = null;
     }
   } catch (error) {
     setStatus(`Could not load pipeline status: ${error.message}`, "error");
@@ -204,6 +264,7 @@ async function pollJob(jobId) {
 
 function startPollingJob(jobId) {
   stopPollingJob();
+  state.pollCount = 0;
   pollJob(jobId);
   state.pollTimer = window.setInterval(() => pollJob(jobId), 1500);
 }
@@ -217,7 +278,7 @@ function stopPollingJob() {
 
 async function resumeLatestJob() {
   try {
-    const response = await fetch("/jobs/latest");
+    const response = await fetch("/jobs/latest", { cache: "no-store" });
     if (response.status === 404) return;
     if (!response.ok) {
       throw new Error(`Request failed with ${response.status}`);
@@ -246,5 +307,17 @@ ratingFilter.addEventListener("input", () => {
 refreshButton.addEventListener("click", loadProjects);
 pipelineButton.addEventListener("click", triggerPipeline);
 
+async function loadConfig() {
+  try {
+    const response = await fetch("/config", { cache: "no-store" });
+    if (!response.ok) return;
+    const cfg = await response.json();
+    if (cfg.max_projects !== undefined) statMaxProjects.textContent = cfg.max_projects;
+  } catch {
+    // non-critical
+  }
+}
+
+loadConfig();
 loadProjects();
 resumeLatestJob();

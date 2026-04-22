@@ -6,12 +6,13 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db import get_session, init_db
 from app.pipeline import list_projects, run_pipeline
 
@@ -30,7 +31,10 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 @app.get("/", include_in_schema=False)
 async def frontend() -> FileResponse:
-    return FileResponse("app/static/index.html")
+    return FileResponse(
+        "app/static/index.html",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/trigger-pipeline")
@@ -41,6 +45,8 @@ async def trigger_pipeline() -> JSONResponse:
         "status": "accepted",
         "stage": "queued",
         "message": "Pipeline queued.",
+        "scraped": 0,
+        "max_projects": settings.max_projects,
         "created_at": now,
         "updated_at": now,
         "messages": [{"at": now, "message": "Pipeline queued."}],
@@ -48,8 +54,21 @@ async def trigger_pipeline() -> JSONResponse:
     asyncio.create_task(_run_pipeline_job(job_id))
     return JSONResponse(
         status_code=status.HTTP_202_ACCEPTED,
-        content={"job_id": job_id, "status": "accepted"},
+        headers={"Cache-Control": "no-store"},
+        content={
+            "job_id": job_id,
+            "status": "accepted",
+            "scraped": 0,
+            "max_projects": settings.max_projects,
+            "status_url": f"/jobs/{job_id}",
+        },
     )
+
+
+@app.get("/config")
+async def get_config(response: Response) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return {"max_projects": settings.max_projects}
 
 
 @app.get("/projects")
@@ -58,7 +77,8 @@ async def get_projects(session: AsyncSession = Depends(get_session)) -> list[dic
 
 
 @app.get("/jobs/latest")
-async def latest_job() -> dict[str, Any]:
+async def latest_job(response: Response) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
     if not jobs:
         raise HTTPException(status_code=404, detail="No pipeline jobs have been started.")
     latest_job_id = next(reversed(jobs))
@@ -66,7 +86,8 @@ async def latest_job() -> dict[str, Any]:
 
 
 @app.get("/jobs/{job_id}")
-async def get_job(job_id: str) -> dict[str, Any]:
+async def get_job(job_id: str, response: Response) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
     job = jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Pipeline job not found.")
@@ -92,6 +113,14 @@ async def _run_pipeline_job(job_id: str) -> None:
         }
 
     try:
+        await update_status(
+            "running",
+            {
+                "job_id": job_id,
+                "stage": "starting",
+                "message": "Background task started.",
+            },
+        )
         await run_pipeline(job_id=job_id, status_callback=update_status)
     except Exception as exc:
         now = datetime.now(timezone.utc).isoformat()
