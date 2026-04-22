@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import Depends, FastAPI, status
+from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session, init_db
@@ -23,6 +25,12 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Hackathons Tracker", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+
+@app.get("/", include_in_schema=False)
+async def frontend() -> FileResponse:
+    return FileResponse("app/static/index.html")
 
 
 @app.post("/trigger-pipeline")

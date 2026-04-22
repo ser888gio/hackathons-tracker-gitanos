@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hackathons Tracker</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Devpost winners</p>
+          <h1>Hackathons Tracker</h1>
+        </div>
+        <div class="actions">
+          <button id="refreshButton" class="icon-button" type="button" title="Refresh projects" aria-label="Refresh projects">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M20 12a8 8 0 0 1-13.7 5.6l-1.8 1.8V14h5.4l-2.1 2.1A5.8 5.8 0 0 0 17.8 12h2.2ZM4 12A8 8 0 0 1 17.7 6.4l1.8-1.8V10h-5.4l2.1-2.1A5.8 5.8 0 0 0 6.2 12H4Z" />
+            </svg>
+          </button>
+          <button id="pipelineButton" class="primary-button" type="button">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M8 5.1v13.8L18.8 12 8 5.1Z" />
+            </svg>
+            <span>Run pipeline</span>
+          </button>
+        </div>
+      </header>
+
+      <section class="toolbar" aria-label="Project filters">
+        <label class="field">
+          <span>Category</span>
+          <select id="categoryFilter">
+            <option value="">All</option>
+            <option value="defense">Defense</option>
+            <option value="health">Health</option>
+            <option value="education">Education</option>
+            <option value="environment">Environment</option>
+            <option value="finance">Finance</option>
+            <option value="social">Social</option>
+            <option value="productivity">Productivity</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Minimum rating</span>
+          <input id="ratingFilter" type="range" min="0" max="10" step="1" value="0" />
+        </label>
+        <output id="ratingValue" class="rating-output">0+</output>
+        <div class="summary" id="summary">Loading...</div>
+      </section>
+
+      <section id="status" class="status" hidden></section>
+      <section id="projectGrid" class="project-grid" aria-live="polite"></section>
+    </main>
+
+    <template id="projectTemplate">
+      <article class="project-card">
+        <div class="project-card__header">
+          <div>
+            <p class="category"></p>
+            <h2></h2>
+          </div>
+          <div class="score" title="LLM rating"></div>
+        </div>
+        <p class="description"></p>
+        <dl class="evaluation">
+          <div>
+            <dt>Pros</dt>
+            <dd class="pros"></dd>
+          </div>
+          <div>
+            <dt>Improvements</dt>
+            <dd class="improvements"></dd>
+          </div>
+        </dl>
+      </article>
+    </template>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
