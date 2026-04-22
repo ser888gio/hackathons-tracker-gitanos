@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Hackathons Tracker</title>
-    <link rel="stylesheet" href="/static/styles.css?v=6" />
+    <link rel="stylesheet" href="/static/styles.css?v=7" />
   </head>
   <body>
     <main class="shell">
@@ -14,6 +14,12 @@
           <h1>Hackathons Tracker</h1>
         </div>
         <div class="actions">
+          <a class="secondary-button" href="/add">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z" />
+            </svg>
+            <span>Add project</span>
+          </a>
           <button id="refreshButton" class="icon-button" type="button" title="Refresh projects" aria-label="Refresh projects">
             <svg aria-hidden="true" viewBox="0 0 24 24">
               <path d="M20 12a8 8 0 0 1-13.7 5.6l-1.8 1.8V14h5.4l-2.1 2.1A5.8 5.8 0 0 0 17.8 12h2.2ZM4 12A8 8 0 0 1 17.7 6.4l1.8-1.8V10h-5.4l2.1-2.1A5.8 5.8 0 0 0 6.2 12H4Z" />
@@ -106,6 +112,6 @@
       </article>
     </template>
 
-    <script src="/static/app.js?v=6" defer></script>
+    <script src="/static/app.js?v=7" defer></script>
   </body>
 </html>

@@ -9,14 +9,27 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import get_session, init_db
-from app.pipeline import list_projects, mark_project_deleted, run_pipeline
+from app.models import CATEGORIES
+from app.pipeline import create_manual_project, list_projects, mark_project_deleted, run_pipeline
 
 jobs: dict[str, dict[str, Any]] = {}
+
+
+class ManualProjectRequest(BaseModel):
+    project_name: str = Field(min_length=1, max_length=255)
+    hackathon_name: str = Field(min_length=1, max_length=255)
+    description: str = Field(min_length=1)
+    category: str = "other"
+    tech_stack: list[str] = Field(default_factory=list)
+    project_url: str | None = None
+    github_url: str | None = None
+    demo_url: str | None = None
 
 
 @asynccontextmanager
@@ -33,6 +46,14 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 async def frontend() -> FileResponse:
     return FileResponse(
         "app/static/index.html",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/add", include_in_schema=False)
+async def add_project_frontend() -> FileResponse:
+    return FileResponse(
+        "app/static/add.html",
         headers={"Cache-Control": "no-store"},
     )
 
@@ -76,6 +97,17 @@ async def get_projects(session: AsyncSession = Depends(get_session)) -> list[dic
     return await list_projects(session)
 
 
+@app.post("/projects", status_code=status.HTTP_201_CREATED)
+async def create_project(
+    project: ManualProjectRequest,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    payload = _manual_project_payload(project)
+    created_project = await create_manual_project(session, payload)
+    await session.commit()
+    return created_project
+
+
 @app.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(project_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Response:
     deleted = await mark_project_deleted(session, project_id)
@@ -83,6 +115,38 @@ async def delete_project(project_id: uuid.UUID, session: AsyncSession = Depends(
         raise HTTPException(status_code=404, detail="Project not found.")
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _manual_project_payload(project: ManualProjectRequest) -> dict[str, Any]:
+    project_name = project.project_name.strip()
+    hackathon_name = project.hackathon_name.strip()
+    description = project.description.strip()
+    category = project.category.strip().lower() or "other"
+    if not project_name:
+        raise HTTPException(status_code=422, detail="Project name is required.")
+    if not hackathon_name:
+        raise HTTPException(status_code=422, detail="Hackathon name is required.")
+    if not description:
+        raise HTTPException(status_code=422, detail="Description is required.")
+    if category not in CATEGORIES:
+        raise HTTPException(status_code=422, detail="Category is not supported.")
+
+    return {
+        "project_name": project_name,
+        "hackathon_name": hackathon_name,
+        "description": description,
+        "category": category,
+        "tech_stack": [tag.strip() for tag in project.tech_stack if tag.strip()],
+        "github_url": _optional_string(project.github_url),
+        "demo_url": _optional_string(project.project_url) or _optional_string(project.demo_url),
+    }
+
+
+def _optional_string(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    return text or None
 
 
 @app.get("/jobs/latest")

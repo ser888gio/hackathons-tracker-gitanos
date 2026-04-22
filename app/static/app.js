@@ -153,7 +153,9 @@ function render() {
 
   for (const project of projects) {
     const node = template.content.cloneNode(true);
-    node.querySelector(".category").textContent = project.category || "other";
+    node.querySelector(".category").textContent = project.hackathon_name
+      ? `${project.hackathon_name} / ${project.category || "other"}`
+      : project.category || "other";
     node.querySelector("h2").textContent = project.project_name;
     node.querySelector(".score").textContent = project.evaluation ? `${project.evaluation.rating}/10` : "-";
     node.querySelector(".delete-project").addEventListener("click", () => deleteProject(project));
@@ -182,7 +184,7 @@ function render() {
       demo.href = project.demo_url;
       demo.target = "_blank";
       demo.rel = "noreferrer";
-      demo.textContent = "Demo";
+      demo.textContent = "Project";
       links.append(demo);
     }
     if (!project.github_url && !project.demo_url) {

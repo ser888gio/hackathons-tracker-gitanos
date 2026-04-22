@@ -5,6 +5,7 @@ import logging
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import quote
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -13,12 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db import AsyncSessionLocal
 from app.evaluator import evaluate_project
-from app.models import Evaluation, Hackathon, Project
-from app.scraper import scrape_devpost_projects
+from app.models import CATEGORIES, Evaluation, Hackathon, Project
 
 logger = logging.getLogger(__name__)
 
 StatusCallback = Callable[[str, dict[str, Any]], Awaitable[None] | None]
+DEFAULT_MANUAL_HACKATHON_NAME = "Manual projects"
 
 
 async def run_pipeline(
@@ -171,6 +172,8 @@ def _run_scraper_sync(
     status_callback: StatusCallback | None,
     skip_project_names: set[str],
 ) -> list[dict[str, Any]]:
+    from app.scraper import scrape_devpost_projects
+
     return asyncio.run(
         scrape_devpost_projects(
             max_projects=max_projects,
@@ -211,6 +214,32 @@ async def _upsert_devpost_hackathon(session: AsyncSession) -> uuid.UUID:
     )
     result = await session.execute(statement)
     return result.scalar_one()
+
+
+async def _upsert_manual_hackathon(session: AsyncSession, hackathon_name: str) -> uuid.UUID:
+    name = hackathon_name.strip() or DEFAULT_MANUAL_HACKATHON_NAME
+    statement = (
+        insert(Hackathon)
+        .values(
+            name=name,
+            platform="Manual",
+            url=_manual_hackathon_url(name),
+        )
+        .on_conflict_do_update(
+            index_elements=[Hackathon.url],
+            set_={
+                "name": name,
+                "platform": "Manual",
+            },
+        )
+        .returning(Hackathon.id)
+    )
+    result = await session.execute(statement)
+    return result.scalar_one()
+
+
+def _manual_hackathon_url(hackathon_name: str) -> str:
+    return f"manual://{quote(hackathon_name.strip().casefold(), safe='')}"
 
 
 async def _upsert_project(
@@ -287,15 +316,67 @@ async def _upsert_evaluation(
     return result.scalar_one()
 
 
+async def create_manual_project(session: AsyncSession, project: dict[str, Any]) -> dict[str, Any]:
+    project_name = str(project["project_name"]).strip()
+    description = str(project["description"]).strip()
+    hackathon_name = str(project.get("hackathon_name") or DEFAULT_MANUAL_HACKATHON_NAME).strip()
+    category = str(project.get("category") or "other").strip().lower()
+    if category not in CATEGORIES:
+        category = "other"
+
+    hackathon_id = await _upsert_manual_hackathon(session, hackathon_name)
+    project_id = await _upsert_project(
+        session,
+        hackathon_id,
+        {
+            "project_name": project_name,
+            "description": description,
+            "tech_stack": project.get("tech_stack") or [],
+            "category": category,
+            "github_url": project.get("github_url"),
+            "demo_url": project.get("demo_url"),
+        },
+    )
+    await session.execute(
+        update(Project)
+        .where(Project.id == project_id)
+        .values(deleted=False, scraped_at=func.now())
+    )
+
+    evaluation = await evaluate_project(project_name, description, category)
+    await _upsert_evaluation(session, project_id, evaluation)
+    if evaluation.get("category") and category in {"", "other", None}:
+        await session.execute(
+            update(Project)
+            .where(Project.id == project_id)
+            .values(category=evaluation["category"], scraped_at=func.now())
+        )
+
+    return await get_project(session, project_id)
+
+
 async def list_projects(session: AsyncSession) -> list[dict[str, Any]]:
     statement = (
-        select(Project, Evaluation)
+        select(Project, Evaluation, Hackathon)
+        .join(Hackathon, Hackathon.id == Project.hackathon_id)
         .outerjoin(Evaluation, Evaluation.project_id == Project.id)
         .where(Project.deleted.is_(False))
         .order_by(Project.scraped_at.desc(), Project.project_name.asc())
     )
     rows = (await session.execute(statement)).all()
-    return [_serialize_project(project, evaluation) for project, evaluation in rows]
+    return [_serialize_project(project, evaluation, hackathon) for project, evaluation, hackathon in rows]
+
+
+async def get_project(session: AsyncSession, project_id: uuid.UUID) -> dict[str, Any]:
+    statement = (
+        select(Project, Evaluation, Hackathon)
+        .join(Hackathon, Hackathon.id == Project.hackathon_id)
+        .outerjoin(Evaluation, Evaluation.project_id == Project.id)
+        .where(Project.id == project_id)
+    )
+    row = (await session.execute(statement)).one()
+    project, evaluation, hackathon = row
+    return _serialize_project(project, evaluation, hackathon)
 
 
 async def mark_project_deleted(session: AsyncSession, project_id: uuid.UUID) -> bool:
@@ -309,10 +390,15 @@ async def mark_project_deleted(session: AsyncSession, project_id: uuid.UUID) -> 
     return result.scalar_one_or_none() is not None
 
 
-def _serialize_project(project: Project, evaluation: Evaluation | None) -> dict[str, Any]:
+def _serialize_project(
+    project: Project,
+    evaluation: Evaluation | None,
+    hackathon: Hackathon | None = None,
+) -> dict[str, Any]:
     return {
         "id": str(project.id),
         "hackathon_id": str(project.hackathon_id),
+        "hackathon_name": hackathon.name if hackathon is not None else None,
         "project_name": project.project_name,
         "description": project.description,
         "tech_stack": project.tech_stack,

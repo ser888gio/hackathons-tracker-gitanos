@@ -27,8 +27,13 @@ body {
 
 button,
 select,
-input {
+input,
+textarea {
   font: inherit;
+}
+
+a {
+  color: inherit;
 }
 
 .shell {
@@ -68,13 +73,15 @@ h1 {
 }
 
 .icon-button,
-.primary-button {
+.primary-button,
+.secondary-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-height: 44px;
   border: 1px solid transparent;
   cursor: pointer;
+  text-decoration: none;
   transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
 }
 
@@ -96,13 +103,30 @@ h1 {
   font-weight: 800;
 }
 
+.secondary-button {
+  gap: 8px;
+  min-width: 132px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--teal-dark);
+  font-weight: 800;
+}
+
 .icon-button:hover,
-.primary-button:hover {
+.primary-button:hover,
+.secondary-button:hover {
   transform: translateY(-1px);
 }
 
 .primary-button:hover {
   background: var(--teal-dark);
+}
+
+.secondary-button:hover {
+  border-color: rgba(12, 124, 114, 0.35);
+  background: var(--surface-strong);
 }
 
 button:disabled {
@@ -148,6 +172,25 @@ select {
   border-radius: 8px;
   background: #fff;
   color: var(--ink);
+}
+
+input[type="text"],
+input[type="url"],
+textarea {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+}
+
+textarea {
+  min-height: 180px;
+  padding: 11px 12px;
+  resize: vertical;
+  line-height: 1.45;
 }
 
 input[type="range"] {
@@ -273,6 +316,31 @@ input[type="range"] {
   color: #5e4a43;
   font-size: 0.92rem;
   line-height: 1.35;
+}
+
+.manual-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 16px;
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.field--wide {
+  grid-column: 1 / -1;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.created-project {
+  display: grid;
+  grid-template-columns: minmax(0, 560px);
 }
 
 .project-grid {
@@ -448,6 +516,10 @@ dd {
     flex: 1;
   }
 
+  .secondary-button {
+    flex: 1;
+  }
+
   .toolbar {
     grid-template-columns: 1fr 72px;
   }
@@ -458,6 +530,14 @@ dd {
 
   .summary {
     justify-self: start;
+  }
+
+  .manual-form {
+    grid-template-columns: 1fr;
+  }
+
+  .field--wide {
+    grid-column: auto;
   }
 
   .status__header {
