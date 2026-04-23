@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Hackathons Tracker</title>
-    <link rel="stylesheet" href="/static/styles.css?v=7" />
+    <link rel="stylesheet" href="/static/styles.css?v=8" />
   </head>
   <body>
     <main class="shell">
@@ -54,6 +54,10 @@
       </section>
 
       <section class="toolbar" aria-label="Project filters">
+        <label class="field field--search">
+          <span>Search</span>
+          <input id="searchFilter" type="search" placeholder="Name, hackathon, stack, feedback" autocomplete="off" />
+        </label>
         <label class="field">
           <span>Category</span>
           <select id="categoryFilter">
@@ -69,11 +73,75 @@
           </select>
         </label>
         <label class="field">
-          <span>Minimum rating</span>
-          <input id="ratingFilter" type="range" min="0" max="10" step="1" value="0" />
+          <span>Hackathon</span>
+          <select id="hackathonFilter">
+            <option value="">All hackathons</option>
+          </select>
         </label>
-        <output id="ratingValue" class="rating-output">0+</output>
-        <div class="summary" id="summary">Loading...</div>
+        <label class="field">
+          <span>Source</span>
+          <select id="sourceFilter">
+            <option value="">All sources</option>
+            <option value="Devpost">Devpost</option>
+            <option value="Manual">Manual</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Sort</span>
+          <select id="sortFilter">
+            <option value="newest">Newest scraped</option>
+            <option value="rating-desc">Rating high to low</option>
+            <option value="rating-asc">Rating low to high</option>
+            <option value="project-asc">Project name</option>
+            <option value="hackathon-asc">Hackathon name</option>
+          </select>
+        </label>
+        <div class="rating-controls" aria-label="Rating filters">
+          <span class="control-label">Rating</span>
+          <div class="rating-range">
+            <label class="mini-field">
+              <span>Min</span>
+              <input id="minRatingFilter" type="number" min="0" max="10" step="1" value="0" />
+            </label>
+            <label class="mini-field">
+              <span>Max</span>
+              <input id="maxRatingFilter" type="number" min="0" max="10" step="1" value="10" />
+            </label>
+          </div>
+          <div class="segmented" aria-label="Rating presets">
+            <button class="segmented__button is-active" type="button" data-rating-preset="all">All</button>
+            <button class="segmented__button" type="button" data-rating-preset="8">8+</button>
+            <button class="segmented__button" type="button" data-rating-preset="6">6+</button>
+            <button class="segmented__button" type="button" data-rating-preset="pending">Pending</button>
+          </div>
+        </div>
+        <div class="toggle-group" aria-label="Link filters">
+          <span class="control-label">Links</span>
+          <label class="toggle">
+            <input id="githubFilter" type="checkbox" />
+            <span>GitHub</span>
+          </label>
+          <label class="toggle">
+            <input id="demoFilter" type="checkbox" />
+            <span>Demo</span>
+          </label>
+        </div>
+        <div class="tech-filter">
+          <div class="tech-filter__header">
+            <span class="control-label">Tech stack</span>
+            <button id="clearTechFilter" class="text-button" type="button">Clear</button>
+          </div>
+          <div id="techStackFilter" class="chip-group" aria-label="Tech stack filters"></div>
+        </div>
+        <div class="toolbar__footer">
+          <div class="summary" id="summary">Loading...</div>
+          <button id="resetFilters" class="secondary-button secondary-button--compact" type="button">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M12 5a7 7 0 1 1-6.4 9.8l1.8-.9A5 5 0 1 0 7 12h3L6 8 2 12h3a7 7 0 0 1 7-7Z" />
+            </svg>
+            <span>Reset filters</span>
+          </button>
+        </div>
       </section>
 
       <section id="status" class="status" hidden></section>
@@ -112,6 +180,6 @@
       </article>
     </template>
 
-    <script src="/static/app.js?v=7" defer></script>
+    <script src="/static/app.js?v=8" defer></script>
   </body>
 </html>

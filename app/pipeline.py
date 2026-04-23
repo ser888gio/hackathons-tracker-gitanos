@@ -399,6 +399,7 @@ def _serialize_project(
         "id": str(project.id),
         "hackathon_id": str(project.hackathon_id),
         "hackathon_name": hackathon.name if hackathon is not None else None,
+        "hackathon_platform": hackathon.platform if hackathon is not None else None,
         "project_name": project.project_name,
         "description": project.description,
         "tech_stack": project.tech_stack,

@@ -1,7 +1,17 @@
 const state = {
   projects: [],
+  search: "",
   category: "",
+  hackathon: "",
+  source: "",
+  selectedTech: new Set(),
   minRating: 0,
+  maxRating: 10,
+  ratingPreset: "all",
+  evaluationStatus: "all",
+  requireGithub: false,
+  requireDemo: false,
+  sort: "newest",
   activeJobId: null,
   pollTimer: null,
   pollCount: 0,
@@ -30,9 +40,19 @@ function updateScraperPanel(job) {
 const template = document.querySelector("#projectTemplate");
 const statusBox = document.querySelector("#status");
 const summary = document.querySelector("#summary");
+const searchFilter = document.querySelector("#searchFilter");
 const categoryFilter = document.querySelector("#categoryFilter");
-const ratingFilter = document.querySelector("#ratingFilter");
-const ratingValue = document.querySelector("#ratingValue");
+const hackathonFilter = document.querySelector("#hackathonFilter");
+const sourceFilter = document.querySelector("#sourceFilter");
+const sortFilter = document.querySelector("#sortFilter");
+const minRatingFilter = document.querySelector("#minRatingFilter");
+const maxRatingFilter = document.querySelector("#maxRatingFilter");
+const ratingPresetButtons = document.querySelectorAll("[data-rating-preset]");
+const githubFilter = document.querySelector("#githubFilter");
+const demoFilter = document.querySelector("#demoFilter");
+const techStackFilter = document.querySelector("#techStackFilter");
+const clearTechFilter = document.querySelector("#clearTechFilter");
+const resetFilters = document.querySelector("#resetFilters");
 const refreshButton = document.querySelector("#refreshButton");
 const pipelineButton = document.querySelector("#pipelineButton");
 
@@ -129,18 +149,273 @@ function ratingOf(project) {
   return project.evaluation?.rating ?? 0;
 }
 
-function filteredProjects() {
-  return state.projects.filter((project) => {
-    const categoryMatch = !state.category || project.category === state.category;
-    const ratingMatch = ratingOf(project) >= state.minRating;
-    return categoryMatch && ratingMatch;
+function normalizeText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function clampRating(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(0, Math.min(10, Math.round(number)));
+}
+
+function projectSource(project) {
+  const platform = String(project.hackathon_platform || "").trim();
+  if (platform) return platform;
+  const hackathonName = normalizeText(project.hackathon_name);
+  return hackathonName.includes("manual") ? "Manual" : "Devpost";
+}
+
+function searchableText(project) {
+  return normalizeText([
+    project.project_name,
+    project.hackathon_name,
+    project.category,
+    project.description,
+    ...(project.tech_stack || []),
+    project.evaluation?.feedback_pros,
+    project.evaluation?.feedback_improvements,
+  ].join(" "));
+}
+
+function matchesSearch(project) {
+  const terms = normalizeText(state.search).split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return true;
+  const haystack = searchableText(project);
+  return terms.every((term) => haystack.includes(term));
+}
+
+function matchesRating(project) {
+  const hasEvaluation = Boolean(project.evaluation);
+  if (state.evaluationStatus === "pending") {
+    return !hasEvaluation;
+  }
+  if (state.evaluationStatus === "rated" && !hasEvaluation) {
+    return false;
+  }
+  if (!hasEvaluation) {
+    return state.minRating === 0 && state.maxRating === 10;
+  }
+  const rating = ratingOf(project);
+  return rating >= state.minRating && rating <= state.maxRating;
+}
+
+function matchesTechStack(project) {
+  if (state.selectedTech.size === 0) return true;
+  const projectTags = new Set((project.tech_stack || []).map(normalizeText));
+  for (const selectedTag of state.selectedTech) {
+    if (!projectTags.has(selectedTag)) return false;
+  }
+  return true;
+}
+
+function compareProjectNames(left, right, field) {
+  return String(left[field] || "").localeCompare(String(right[field] || ""), undefined, {
+    sensitivity: "base",
   });
+}
+
+function sortedProjects(projects) {
+  return [...projects].sort((left, right) => {
+    if (state.sort === "rating-desc") {
+      return ratingOf(right) - ratingOf(left) || compareProjectNames(left, right, "project_name");
+    }
+    if (state.sort === "rating-asc") {
+      const leftRating = left.evaluation ? ratingOf(left) : 11;
+      const rightRating = right.evaluation ? ratingOf(right) : 11;
+      return leftRating - rightRating || compareProjectNames(left, right, "project_name");
+    }
+    if (state.sort === "project-asc") {
+      return compareProjectNames(left, right, "project_name");
+    }
+    if (state.sort === "hackathon-asc") {
+      return compareProjectNames(left, right, "hackathon_name") || compareProjectNames(left, right, "project_name");
+    }
+    return Date.parse(right.scraped_at || 0) - Date.parse(left.scraped_at || 0)
+      || compareProjectNames(left, right, "project_name");
+  });
+}
+
+function filteredProjects() {
+  const projects = state.projects.filter((project) => {
+    const searchMatch = matchesSearch(project);
+    const categoryMatch = !state.category || project.category === state.category;
+    const hackathonMatch = !state.hackathon || project.hackathon_name === state.hackathon;
+    const sourceMatch = !state.source || normalizeText(projectSource(project)) === normalizeText(state.source);
+    const githubMatch = !state.requireGithub || Boolean(project.github_url);
+    const demoMatch = !state.requireDemo || Boolean(project.demo_url);
+    return searchMatch
+      && categoryMatch
+      && hackathonMatch
+      && sourceMatch
+      && githubMatch
+      && demoMatch
+      && matchesRating(project)
+      && matchesTechStack(project);
+  });
+  return sortedProjects(projects);
+}
+
+function setRatingPreset(preset) {
+  if (preset === "pending") {
+    state.minRating = 0;
+    state.maxRating = 10;
+    state.evaluationStatus = "pending";
+  } else {
+    state.minRating = preset === "8" ? 8 : preset === "6" ? 6 : 0;
+    state.maxRating = 10;
+    state.evaluationStatus = "all";
+  }
+  state.ratingPreset = preset;
+  syncFilterControls();
+  render();
+}
+
+function deriveRatingPreset() {
+  if (state.evaluationStatus === "pending") return "pending";
+  if (state.minRating === 8 && state.maxRating === 10) return "8";
+  if (state.minRating === 6 && state.maxRating === 10) return "6";
+  if (state.minRating === 0 && state.maxRating === 10) return "all";
+  return "";
+}
+
+function syncFilterControls() {
+  searchFilter.value = state.search;
+  categoryFilter.value = state.category;
+  hackathonFilter.value = state.hackathon;
+  sourceFilter.value = state.source;
+  sortFilter.value = state.sort;
+  minRatingFilter.value = state.minRating;
+  maxRatingFilter.value = state.maxRating;
+  githubFilter.checked = state.requireGithub;
+  demoFilter.checked = state.requireDemo;
+
+  const activePreset = state.ratingPreset || deriveRatingPreset();
+  for (const button of ratingPresetButtons) {
+    button.classList.toggle("is-active", button.dataset.ratingPreset === activePreset);
+  }
+}
+
+function updateRatingFromInputs(changedField) {
+  const previousMin = state.minRating;
+  const previousMax = state.maxRating;
+  state.minRating = clampRating(minRatingFilter.value, previousMin);
+  state.maxRating = clampRating(maxRatingFilter.value, previousMax);
+  if (state.minRating > state.maxRating) {
+    if (changedField === "min") {
+      state.maxRating = state.minRating;
+    } else {
+      state.minRating = state.maxRating;
+    }
+  }
+  state.evaluationStatus = "all";
+  state.ratingPreset = deriveRatingPreset();
+  syncFilterControls();
+  render();
+}
+
+function resetAllFilters() {
+  state.search = "";
+  state.category = "";
+  state.hackathon = "";
+  state.source = "";
+  state.selectedTech.clear();
+  state.minRating = 0;
+  state.maxRating = 10;
+  state.ratingPreset = "all";
+  state.evaluationStatus = "all";
+  state.requireGithub = false;
+  state.requireDemo = false;
+  state.sort = "newest";
+  renderFilterOptions();
+  syncFilterControls();
+  render();
+}
+
+function renderHackathonOptions() {
+  const selected = state.hackathon;
+  const hackathons = [...new Set(state.projects.map((project) => project.hackathon_name).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: "base" }));
+  if (selected && !hackathons.includes(selected)) {
+    state.hackathon = "";
+  }
+
+  hackathonFilter.replaceChildren();
+  const allOption = document.createElement("option");
+  allOption.value = "";
+  allOption.textContent = "All hackathons";
+  hackathonFilter.append(allOption);
+
+  for (const hackathon of hackathons) {
+    const option = document.createElement("option");
+    option.value = hackathon;
+    option.textContent = hackathon;
+    hackathonFilter.append(option);
+  }
+  hackathonFilter.value = state.hackathon;
+}
+
+function renderTechStackOptions() {
+  const counts = new Map();
+  for (const project of state.projects) {
+    const projectTags = new Set((project.tech_stack || []).map((tag) => String(tag || "").trim()).filter(Boolean));
+    for (const tag of projectTags) {
+      const key = normalizeText(tag);
+      const current = counts.get(key) || { label: tag, count: 0 };
+      current.count += 1;
+      counts.set(key, current);
+    }
+  }
+
+  for (const selectedTag of [...state.selectedTech]) {
+    if (!counts.has(selectedTag)) {
+      state.selectedTech.delete(selectedTag);
+    }
+  }
+
+  const tags = [...counts.entries()].sort(([, left], [, right]) => {
+    return right.count - left.count || left.label.localeCompare(right.label, undefined, { sensitivity: "base" });
+  });
+
+  techStackFilter.replaceChildren();
+  if (tags.length === 0) {
+    const empty = document.createElement("span");
+    empty.className = "chip-group__empty";
+    empty.textContent = "No stack tags yet";
+    techStackFilter.append(empty);
+    clearTechFilter.disabled = true;
+    return;
+  }
+
+  for (const [key, tag] of tags) {
+    const button = document.createElement("button");
+    button.className = "chip";
+    button.type = "button";
+    button.dataset.tech = key;
+    button.classList.toggle("is-active", state.selectedTech.has(key));
+    button.setAttribute("aria-pressed", state.selectedTech.has(key) ? "true" : "false");
+    button.title = `${tag.count} project${tag.count === 1 ? "" : "s"}`;
+
+    const label = document.createElement("span");
+    label.textContent = tag.label;
+    const count = document.createElement("span");
+    count.className = "chip__count";
+    count.textContent = tag.count;
+    button.append(label, count);
+    techStackFilter.append(button);
+  }
+  clearTechFilter.disabled = state.selectedTech.size === 0;
+}
+
+function renderFilterOptions() {
+  renderHackathonOptions();
+  renderTechStackOptions();
+  syncFilterControls();
 }
 
 function render() {
   const projects = filteredProjects();
   grid.replaceChildren();
-  ratingValue.textContent = `${state.minRating}+`;
   summary.textContent = `${projects.length} of ${state.projects.length} projects`;
 
   if (projects.length === 0) {
@@ -208,6 +483,7 @@ async function loadProjects() {
     if (!state.activeJobId) {
       setStatus("");
     }
+    renderFilterOptions();
     render();
   } catch (error) {
     setStatus(`Could not load projects: ${error.message}`, "error");
@@ -222,6 +498,7 @@ async function deleteProject(project) {
 
   const previousProjects = state.projects;
   state.projects = state.projects.filter((item) => item.id !== project.id);
+  renderFilterOptions();
   render();
 
   try {
@@ -235,6 +512,7 @@ async function deleteProject(project) {
     setStatus(`Deleted ${project.project_name}. It will be skipped if scraped again.`, "info");
   } catch (error) {
     state.projects = previousProjects;
+    renderFilterOptions();
     render();
     setStatus(`Could not delete project: ${error.message}`, "error");
   }
@@ -322,15 +600,69 @@ async function resumeLatestJob() {
   }
 }
 
+searchFilter.addEventListener("input", () => {
+  state.search = searchFilter.value;
+  render();
+});
+
 categoryFilter.addEventListener("change", () => {
   state.category = categoryFilter.value;
   render();
 });
 
-ratingFilter.addEventListener("input", () => {
-  state.minRating = Number(ratingFilter.value);
+hackathonFilter.addEventListener("change", () => {
+  state.hackathon = hackathonFilter.value;
   render();
 });
+
+sourceFilter.addEventListener("change", () => {
+  state.source = sourceFilter.value;
+  render();
+});
+
+sortFilter.addEventListener("change", () => {
+  state.sort = sortFilter.value;
+  render();
+});
+
+minRatingFilter.addEventListener("input", () => updateRatingFromInputs("min"));
+maxRatingFilter.addEventListener("input", () => updateRatingFromInputs("max"));
+
+for (const button of ratingPresetButtons) {
+  button.addEventListener("click", () => setRatingPreset(button.dataset.ratingPreset));
+}
+
+githubFilter.addEventListener("change", () => {
+  state.requireGithub = githubFilter.checked;
+  render();
+});
+
+demoFilter.addEventListener("change", () => {
+  state.requireDemo = demoFilter.checked;
+  render();
+});
+
+techStackFilter.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : event.target.parentElement;
+  const button = target?.closest("[data-tech]");
+  if (!button) return;
+  const tag = button.dataset.tech;
+  if (state.selectedTech.has(tag)) {
+    state.selectedTech.delete(tag);
+  } else {
+    state.selectedTech.add(tag);
+  }
+  renderTechStackOptions();
+  render();
+});
+
+clearTechFilter.addEventListener("click", () => {
+  state.selectedTech.clear();
+  renderTechStackOptions();
+  render();
+});
+
+resetFilters.addEventListener("click", resetAllFilters);
 
 refreshButton.addEventListener("click", loadProjects);
 pipelineButton.addEventListener("click", triggerPipeline);

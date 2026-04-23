@@ -17,7 +17,7 @@ https://hackathons-tracker-gitanos-production.up.railway.app/
 - Uses OpenAI or Gemini to judge each project with a strict hackathon rubric.
 - Stores hackathons, projects, and evaluations in PostgreSQL.
 - Shows projects in a FastAPI-powered web dashboard.
-- Lets you filter by category and minimum rating.
+- Lets you search, sort, and filter by category, rating range, hackathon, source, links, and tech stack.
 - Supports manually adding projects.
 - Lets you delete projects from the visible list so they are skipped if scraped again.
 
