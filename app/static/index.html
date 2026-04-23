@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Hackathons Tracker</title>
-    <link rel="stylesheet" href="/static/styles.css?v=8" />
+    <link rel="stylesheet" href="/static/styles.css?v=9" />
   </head>
   <body>
     <main class="shell">
@@ -131,7 +131,21 @@
             <span class="control-label">Tech stack</span>
             <button id="clearTechFilter" class="text-button" type="button">Clear</button>
           </div>
-          <div id="techStackFilter" class="chip-group" aria-label="Tech stack filters"></div>
+          <div class="tech-select">
+            <button
+              id="techDropdownButton"
+              class="tech-select__button"
+              type="button"
+              aria-haspopup="listbox"
+              aria-expanded="false"
+            >
+              <span id="techDropdownLabel">All tech stacks</span>
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="m7 10 5 5 5-5H7Z" />
+              </svg>
+            </button>
+            <div id="techStackFilter" class="tech-menu" role="listbox" aria-label="Tech stack filters"></div>
+          </div>
         </div>
         <div class="toolbar__footer">
           <div class="summary" id="summary">Loading...</div>
@@ -180,6 +194,6 @@
       </article>
     </template>
 
-    <script src="/static/app.js?v=8" defer></script>
+    <script src="/static/app.js?v=9" defer></script>
   </body>
 </html>

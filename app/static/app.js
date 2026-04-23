@@ -50,6 +50,9 @@ const maxRatingFilter = document.querySelector("#maxRatingFilter");
 const ratingPresetButtons = document.querySelectorAll("[data-rating-preset]");
 const githubFilter = document.querySelector("#githubFilter");
 const demoFilter = document.querySelector("#demoFilter");
+const techFilter = document.querySelector(".tech-filter");
+const techDropdownButton = document.querySelector("#techDropdownButton");
+const techDropdownLabel = document.querySelector("#techDropdownLabel");
 const techStackFilter = document.querySelector("#techStackFilter");
 const clearTechFilter = document.querySelector("#clearTechFilter");
 const resetFilters = document.querySelector("#resetFilters");
@@ -380,31 +383,68 @@ function renderTechStackOptions() {
   techStackFilter.replaceChildren();
   if (tags.length === 0) {
     const empty = document.createElement("span");
-    empty.className = "chip-group__empty";
+    empty.className = "tech-menu__empty";
     empty.textContent = "No stack tags yet";
     techStackFilter.append(empty);
     clearTechFilter.disabled = true;
+    techDropdownButton.disabled = true;
+    techDropdownLabel.textContent = "No tech stacks";
     return;
   }
 
   for (const [key, tag] of tags) {
-    const button = document.createElement("button");
-    button.className = "chip";
-    button.type = "button";
-    button.dataset.tech = key;
-    button.classList.toggle("is-active", state.selectedTech.has(key));
-    button.setAttribute("aria-pressed", state.selectedTech.has(key) ? "true" : "false");
-    button.title = `${tag.count} project${tag.count === 1 ? "" : "s"}`;
+    const option = document.createElement("label");
+    option.className = "tech-option";
+    option.dataset.tech = key;
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", state.selectedTech.has(key) ? "true" : "false");
+    option.title = `${tag.count} project${tag.count === 1 ? "" : "s"}`;
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = key;
+    checkbox.checked = state.selectedTech.has(key);
 
     const label = document.createElement("span");
     label.textContent = tag.label;
     const count = document.createElement("span");
-    count.className = "chip__count";
+    count.className = "tech-option__count";
     count.textContent = tag.count;
-    button.append(label, count);
-    techStackFilter.append(button);
+    option.append(checkbox, label, count);
+    techStackFilter.append(option);
   }
+  techDropdownButton.disabled = false;
   clearTechFilter.disabled = state.selectedTech.size === 0;
+  updateTechDropdownLabel(tags);
+}
+
+function updateTechDropdownLabel(tags = null) {
+  if (state.selectedTech.size === 0) {
+    techDropdownLabel.textContent = "All tech stacks";
+    return;
+  }
+
+  const labelsByKey = new Map((tags || []).map(([key, tag]) => [key, tag.label]));
+  if (labelsByKey.size === 0) {
+    for (const project of state.projects) {
+      for (const tag of project.tech_stack || []) {
+        labelsByKey.set(normalizeText(tag), tag);
+      }
+    }
+  }
+
+  const selectedLabels = [...state.selectedTech]
+    .map((key) => labelsByKey.get(key) || key)
+    .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: "base" }));
+
+  techDropdownLabel.textContent = selectedLabels.length <= 2
+    ? selectedLabels.join(", ")
+    : `${selectedLabels.length} tech stacks selected`;
+}
+
+function setTechDropdownOpen(isOpen) {
+  techFilter.classList.toggle("is-open", isOpen);
+  techDropdownButton.setAttribute("aria-expanded", isOpen ? "true" : "false");
 }
 
 function renderFilterOptions() {
@@ -642,15 +682,18 @@ demoFilter.addEventListener("change", () => {
   render();
 });
 
-techStackFilter.addEventListener("click", (event) => {
-  const target = event.target instanceof Element ? event.target : event.target.parentElement;
-  const button = target?.closest("[data-tech]");
-  if (!button) return;
-  const tag = button.dataset.tech;
-  if (state.selectedTech.has(tag)) {
-    state.selectedTech.delete(tag);
-  } else {
+techDropdownButton.addEventListener("click", () => {
+  setTechDropdownOpen(!techFilter.classList.contains("is-open"));
+});
+
+techStackFilter.addEventListener("change", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
+  const tag = target.value;
+  if (target.checked) {
     state.selectedTech.add(tag);
+  } else {
+    state.selectedTech.delete(tag);
   }
   renderTechStackOptions();
   render();
@@ -660,6 +703,19 @@ clearTechFilter.addEventListener("click", () => {
   state.selectedTech.clear();
   renderTechStackOptions();
   render();
+});
+
+document.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : event.target.parentElement;
+  if (!target || techFilter.contains(target)) return;
+  setTechDropdownOpen(false);
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    setTechDropdownOpen(false);
+    techDropdownButton.focus();
+  }
 });
 
 resetFilters.addEventListener("click", resetAllFilters);
